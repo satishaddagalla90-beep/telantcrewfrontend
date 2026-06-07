@@ -1,0 +1,541 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import Button from '../../atoms/Button';
+import Input from '../../atoms/Input';
+import Badge from '../../atoms/Badge';
+import Text from '../../atoms/Text';
+import Icon from '../../atoms/Icon';
+import SelectField from '../../molecules/SelectField';
+import Pagination from '../../molecules/Pagination/Pagination';
+import PageLayout from '../../templates/PageLayout/PageLayout';
+import Header from '../../molecules/Header';
+import AdvancedFilters from './AdvancedFilters';
+import CandidateCard from './CandidateCard';
+import { CandidateData, SearchFilters, mockCandidatesData } from './types';
+
+interface CandidateSearchProps {
+    // Optional props for when used as embedded component
+    embedded?: boolean;
+    jobId?: string;
+    onCandidateSelect?: (candidate: CandidateData) => void;
+    initialQuery?: string;
+    maxResults?: number;
+}
+
+const CandidateSearch: React.FC<CandidateSearchProps> = ({
+    embedded = false,
+    jobId,
+    onCandidateSelect,
+    initialQuery = '',
+    maxResults,
+}) => {
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+    const [showFilters, setShowFilters] = useState(!embedded);
+    const [selectedCandidates, setSelectedCandidates] = useState<string[]>([]);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage] = useState(embedded ? (maxResults || 6) : 12);
+
+    const [filters, setFilters] = useState<SearchFilters>({
+        query: initialQuery || 'Senior React Developer',
+        skills: [],
+        experienceRange: [3, 8],
+        salaryRange: [80, 150],
+        locations: [],
+        education: '',
+        companies: [],
+        availability: '',
+        workType: [],
+        verified: false,
+        highResponseRate: false,
+        recentlyActive: false,
+        visaStatus: '',
+        certifications: [],
+        languages: [],
+    });
+
+    // Parse URL parameters on mount
+    useEffect(() => {
+        const searchParams = new URLSearchParams(location.search);
+        const jobId = searchParams.get('jobId');
+        const title = searchParams.get('title');
+        const skills = searchParams.get('skills');
+
+        if (!embedded) {
+            const updatedFilters: Partial<SearchFilters> = {};
+
+            if (title) {
+                updatedFilters.query = title;
+            }
+
+            if (skills) {
+                const skillsArray = skills.split(',').map(skill => skill.trim()).filter(Boolean);
+                updatedFilters.skills = skillsArray;
+            }
+
+            if (Object.keys(updatedFilters).length > 0) {
+                setFilters(prev => ({ ...prev, ...updatedFilters }));
+            }
+        }
+    }, [location.search, embedded]);
+
+    // Filter candidates based on current filters
+    const filteredCandidates = useMemo(() => {
+        let candidates = [...mockCandidatesData];
+
+        // Apply search query filter
+        if (filters.query) {
+            const query = filters.query.toLowerCase();
+            candidates = candidates.filter(candidate =>
+                candidate.name.toLowerCase().includes(query) ||
+                candidate.title.toLowerCase().includes(query) ||
+                candidate.keySkills.some(skill => skill.toLowerCase().includes(query)) ||
+                candidate.currentCompany.toLowerCase().includes(query)
+            );
+        }
+
+        // Apply skills filter
+        if (filters.skills.length > 0) {
+            candidates = candidates.filter(candidate =>
+                filters.skills.some(skill =>
+                    candidate.keySkills.includes(skill) || candidate.additionalSkills.includes(skill)
+                )
+            );
+        }
+
+        // Apply experience filter
+        const experienceMin = filters.experienceRange[0];
+        const experienceMax = filters.experienceRange[1];
+        candidates = candidates.filter(candidate => {
+            const years = parseInt(candidate.experience.split(' ')[0]);
+            return years >= experienceMin && years <= experienceMax;
+        });
+
+        // Apply location filter
+        if (filters.locations.length > 0) {
+            candidates = candidates.filter(candidate =>
+                filters.locations.some(location =>
+                    candidate.location.toLowerCase().includes(location.toLowerCase()) ||
+                    candidate.preferredLocations.some(prefLoc =>
+                        prefLoc.toLowerCase().includes(location.toLowerCase())
+                    )
+                )
+            );
+        }
+
+        // Apply work type filter
+        if (filters.workType.length > 0) {
+            candidates = candidates.filter(candidate =>
+                filters.workType.some(type => candidate.workType.includes(type))
+            );
+        }
+
+        // Apply preferences filters
+        if (filters.verified) {
+            candidates = candidates.filter(candidate => candidate.verified);
+        }
+
+        if (filters.highResponseRate) {
+            candidates = candidates.filter(candidate =>
+                parseInt(candidate.responseRate.replace('%', '')) >= 90
+            );
+        }
+
+        if (filters.recentlyActive) {
+            const recentlyActiveKeywords = ['hours', '1 day', '2 days', '3 days'];
+            candidates = candidates.filter(candidate =>
+                recentlyActiveKeywords.some(keyword => candidate.lastActive.includes(keyword))
+            );
+        }
+
+        // Apply visa status filter
+        if (filters.visaStatus) {
+            candidates = candidates.filter(candidate =>
+                candidate.visaStatus.toLowerCase().includes(filters.visaStatus.toLowerCase())
+            );
+        }
+
+        // Sort by relevance (simple scoring for demo)
+        candidates.sort((a, b) => {
+            let scoreA = 0, scoreB = 0;
+
+            // Boost score for verified candidates
+            if (a.verified) scoreA += 10;
+            if (b.verified) scoreB += 10;
+
+            // Boost score for high ratings
+            scoreA += a.rating * 2;
+            scoreB += b.rating * 2;
+
+            // Boost score for high response rates
+            scoreA += parseInt(a.responseRate.replace('%', '')) / 10;
+            scoreB += parseInt(b.responseRate.replace('%', '')) / 10;
+
+            return scoreB - scoreA;
+        });
+
+        return candidates;
+    }, [filters]);
+
+    // Pagination
+    const totalItems = filteredCandidates.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const paginatedCandidates = filteredCandidates.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    const handleApplyFilters = () => {
+        setCurrentPage(1);
+    };
+
+    const handleClearFilters = () => {
+        setFilters({
+            query: '',
+            skills: [],
+            experienceRange: [0, 20],
+            salaryRange: [30, 200],
+            locations: [],
+            education: '',
+            companies: [],
+            availability: '',
+            workType: [],
+            verified: false,
+            highResponseRate: false,
+            recentlyActive: false,
+            visaStatus: '',
+            certifications: [],
+            languages: [],
+        });
+        setCurrentPage(1);
+    };
+
+    const toggleCandidateSelection = (candidateId: string) => {
+        setSelectedCandidates(prev =>
+            prev.includes(candidateId)
+                ? prev.filter(id => id !== candidateId)
+                : [...prev, candidateId]
+        );
+    };
+
+    const handleViewProfile = (candidate: CandidateData) => {
+        if (embedded && onCandidateSelect) {
+            onCandidateSelect(candidate);
+        } else {
+            navigate(`/candidate-profile/${candidate.id}`);
+        }
+    };
+
+    const handleContact = (candidate: CandidateData) => {
+        // Implementation for contacting candidate
+        console.log('Contact candidate:', candidate);
+    };
+
+    const handleDownload = (candidate: CandidateData) => {
+        // Implementation for downloading resume
+        console.log('Download resume:', candidate);
+    };
+
+    const handleToggleFavorite = (candidate: CandidateData) => {
+        // Implementation for favoriting candidate
+        console.log('Toggle favorite:', candidate);
+    };
+
+    const handleShare = (candidate: CandidateData) => {
+        // Implementation for sharing candidate
+        console.log('Share candidate:', candidate);
+    };
+
+    const getStatsInfo = () => {
+        const verified = filteredCandidates.filter(c => c.verified).length;
+        const recentlyActive = filteredCandidates.filter(c =>
+            ['hours', '1 day', '2 days'].some(keyword => c.lastActive.includes(keyword))
+        ).length;
+        const highResponse = filteredCandidates.filter(c =>
+            parseInt(c.responseRate.replace('%', '')) >= 90
+        ).length;
+
+        return { verified, recentlyActive, highResponse };
+    };
+
+    const stats = getStatsInfo();
+
+    if (embedded) {
+        return (
+            <div className="bg-white">
+                {/* Embedded Search Header */}
+                <div className="p-4 border-b">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 className="text-lg font-semibold">Candidate Search</h3>
+                            <p className="text-sm text-gray-600">
+                                Found <span className="font-semibold text-blue-600">{totalItems}</span> matching candidates
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant={showFilters ? 'primary' : 'outline'}
+                                size="sm"
+                                onClick={() => setShowFilters(!showFilters)}
+                            >
+                                <Icon name="funnel" className="w-4 h-4 mr-2" />
+                                Filters
+                            </Button>
+                            <div className="flex items-center border rounded">
+                                <Button
+                                    variant={viewMode === 'list' ? 'primary' : 'ghost'}
+                                    size="sm"
+                                    onClick={() => setViewMode('list')}
+                                    className="rounded-r-none"
+                                >
+                                    <Icon name="file-text" className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    variant={viewMode === 'grid' ? 'primary' : 'ghost'}
+                                    size="sm"
+                                    onClick={() => setViewMode('grid')}
+                                    className="rounded-l-none"
+                                >
+                                    <Icon name="grid" className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="relative mb-4">
+                        <Icon name="search" className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                        <Input
+                            value={filters.query}
+                            onChange={(e) => setFilters(prev => ({ ...prev, query: e.target.value }))}
+                            placeholder="Search candidates by name, skills, company..."
+                            className="pl-10"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex">
+                    {showFilters && (
+                        <AdvancedFilters
+                            filters={filters}
+                            onFiltersChange={(newFilters) => setFilters(prev => ({ ...prev, ...newFilters }))}
+                            onClearAll={handleClearFilters}
+                        />
+                    )}
+
+                    <div className="flex-1 p-4">
+                        <div className={viewMode === 'grid' ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : 'space-y-4'}>
+                            {paginatedCandidates.map((candidate) => (
+                                <CandidateCard
+                                    key={candidate.id}
+                                    candidate={candidate}
+                                    isSelected={selectedCandidates.includes(candidate.id)}
+                                    onSelect={(selected) => selected ?
+                                        setSelectedCandidates(prev => [...prev, candidate.id]) :
+                                        setSelectedCandidates(prev => prev.filter(id => id !== candidate.id))
+                                    }
+                                    onViewProfile={() => handleViewProfile(candidate)}
+                                    onContact={() => handleContact(candidate)}
+                                    onDownload={() => handleDownload(candidate)}
+                                    onToggleFavorite={() => handleToggleFavorite(candidate)}
+                                    onShare={() => handleShare(candidate)}
+                                    viewMode={viewMode}
+                                />
+                            ))}
+                        </div>
+
+                        {totalPages > 1 && (
+                            <div className="mt-6">
+                                <Pagination
+                                    currentPage={currentPage}
+                                    totalPages={totalPages}
+                                    onPageChange={setCurrentPage}
+                                />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Full page version
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <div className="flex">
+                {showFilters && (
+                    <AdvancedFilters
+                        filters={filters}
+                        onFiltersChange={(newFilters) => setFilters(prev => ({ ...prev, ...newFilters }))}
+                        onClearAll={handleClearFilters}
+                    />
+                )}
+
+                <div className="flex-1">
+                    <PageLayout
+                        header={
+                            <Header
+                                title={(() => {
+                                    const searchParams = new URLSearchParams(location.search);
+                                    const jobTitle = searchParams.get('title');
+                                    const jobId = searchParams.get('jobId');
+
+                                    if (jobTitle && !embedded) {
+                                        return `Searching Candidates for: ${jobTitle}`;
+                                    }
+                                    return "Candidate Search Results";
+                                })()}
+                                showNewRecordButton={false}
+                            />
+                        }
+                    >
+                        {/* Custom actions bar */}
+                        <div className="bg-white border-b px-6 py-3">
+                            {/* Job Context Breadcrumb */}
+                            {(() => {
+                                const searchParams = new URLSearchParams(location.search);
+                                const jobId = searchParams.get('jobId');
+                                const jobTitle = searchParams.get('title');
+
+                                if (jobId && jobTitle) {
+                                    return (
+                                        <div className="mb-3 flex items-center text-sm text-gray-600">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => navigate(`/jobs/${jobId}`)}
+                                                className="p-0 h-auto font-normal hover:text-blue-600"
+                                            >
+                                                ← Back to Job: {jobTitle}
+                                            </Button>
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
+
+                            <div className="flex justify-end gap-3">
+                                <Button variant="outline">
+                                    <Icon name="save" className="w-4 h-4 mr-2" />
+                                    Save Search
+                                </Button>
+                                {selectedCandidates.length > 0 && (
+                                    <Button variant="outline">
+                                        <Icon name="users" className="w-4 h-4 mr-2" />
+                                        Bulk Actions ({selectedCandidates.length})
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div>
+                            {/* Search Header */}
+                            <div className="bg-white border-b p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div>
+                                        <p className="text-gray-600 mt-1">
+                                            Found <span className="font-semibold text-blue-600">{totalItems}</span> candidates matching your criteria
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        {!showFilters && (
+                                            <Button variant="outline" onClick={() => setShowFilters(true)}>
+                                                <Icon name="funnel" className="w-4 h-4 mr-2" />
+                                                Show Filters
+                                            </Button>
+                                        )}
+                                        <div className="flex items-center gap-1 border rounded-md">
+                                            <Button
+                                                variant={viewMode === 'list' ? 'primary' : 'ghost'}
+                                                size="sm"
+                                                onClick={() => setViewMode('list')}
+                                                className="rounded-r-none"
+                                            >
+                                                <Icon name="file-text" className="w-4 h-4" />
+                                            </Button>
+                                            <Button
+                                                variant={viewMode === 'grid' ? 'primary' : 'ghost'}
+                                                size="sm"
+                                                onClick={() => setViewMode('grid')}
+                                                className="rounded-l-none"
+                                            >
+                                                <Icon name="grid" className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Search Stats and Quick Actions */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4 text-sm text-gray-600">
+                                        <div className="flex items-center gap-1">
+                                            <Icon name="check" className="w-4 h-4 text-green-600" />
+                                            <span>{stats.verified} Verified</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <Icon name="calendar" className="w-4 h-4 text-blue-600" />
+                                            <span>{stats.recentlyActive} Recently Active</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <Icon name="star" className="w-4 h-4 text-yellow-600" weight="fill" />
+                                            <span>{stats.highResponse} High Response Rate</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <SelectField
+                                            value="relevance"
+                                            onChange={() => { }} // TODO: Implement sorting
+                                            options={[
+                                                { value: 'relevance', label: 'Most Relevant' },
+                                                { value: 'recent', label: 'Recently Updated' },
+                                                { value: 'experience', label: 'Experience (High to Low)' },
+                                                { value: 'rating', label: 'Highest Rated' },
+                                                { value: 'response-rate', label: 'Response Rate' },
+                                            ]}
+                                            className="w-40"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Candidates List */}
+                            <div className="p-6">
+                                <div className={viewMode === 'grid' ? 'grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6' : 'space-y-6'}>
+                                    {paginatedCandidates.map((candidate) => (
+                                        <CandidateCard
+                                            key={candidate.id}
+                                            candidate={candidate}
+                                            isSelected={selectedCandidates.includes(candidate.id)}
+                                            onSelect={(selected) => toggleCandidateSelection(candidate.id)}
+                                            onViewProfile={() => handleViewProfile(candidate)}
+                                            onContact={() => handleContact(candidate)}
+                                            onDownload={() => handleDownload(candidate)}
+                                            onToggleFavorite={() => handleToggleFavorite(candidate)}
+                                            onShare={() => handleShare(candidate)}
+                                            viewMode={viewMode}
+                                        />
+                                    ))}
+                                </div>
+
+                                {/* Pagination */}
+                                {totalPages > 1 && (
+                                    <div className="mt-8">
+                                        <Pagination
+                                            currentPage={currentPage}
+                                            totalPages={totalPages}
+                                            onPageChange={setCurrentPage}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </PageLayout>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default CandidateSearch;

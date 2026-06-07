@@ -1,0 +1,13 @@
+# Ignore tsconfig.json as it's a JSON file, not JavaScript/TypeScript
+tsconfig.json 
+package.json
+node_modules
+build
+dist
+public
+stories
+.eslintrc.json
+**/*.css
+**/*.scss
+serve.json
+serve.local.json
